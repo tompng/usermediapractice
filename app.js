@@ -1,5 +1,5 @@
 const { Server } = require('ws')
-var server = new Server({ port: 6789 })
+var server = new Server({ port: process.env.PORT || 6789 })
 
 const clients = new Map()
 server.on('connection', ws => {
