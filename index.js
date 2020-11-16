@@ -1,3 +1,6 @@
+setInterval(() => {
+  location.reload()
+}, 60 * 60 * 1000)
 onload = async () => {
   const video = document.createElement('video')
   document.body.appendChild(video)
@@ -44,10 +47,12 @@ onload = async () => {
     let initial = true
     recorder.ondataavailable = async event => {
       const blob = event.data
-      const arr = new Uint8Array(await blob.arrayBuffer())
-      const base64 = btoa([...arr].map(c => String.fromCharCode(c)).join(''))
-      websocket.send((initial ? 0 : 1) + base64)
-      initial = false
+      reader = new FileReader()
+      reader.readAsDataURL(blob)
+      reader.onload = () => {
+        websocket.send((initial ? 0 : 1) + reader.result.split('base64,', 2).pop())
+        initial = false
+      }
     }
     recorder.start(200)
     prevRecorder = recorder
