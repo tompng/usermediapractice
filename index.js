@@ -26,30 +26,22 @@ onload = async () => {
   }
   let prevRecorder = null
   function startSend() {
-    if (prevRecorder) {
-      resumerecorder()
-    }
     const recorder = new MediaRecorder(stream, { mimeType: codec })
     let initial = true
     recorder.ondataavailable = async event => {
       const blob = event.data
       const arr = new Uint8Array(await blob.arrayBuffer())
-      if (prevRecorder !== recorder) return
       const base64 = btoa([...arr].map(c => String.fromCharCode(c)).join(''))
       websocket.send((initial ? 0 : 1) + base64)
       initial = false
     }
     recorder.start(200)
-    window.recorder = recorder
-    window.resumerecorder = () => {
-      initial = true
-      recorder.resume()
-    }
     prevRecorder = recorder
   }
   function stopSend() {
     if (!prevRecorder) return
     prevRecorder.pause()
+    prevRecorder = null
   }
   let buffers = []
   let appendVideoData = () => { console.error('error') }
