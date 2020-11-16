@@ -3,27 +3,41 @@ onload = async () => {
   document.body.appendChild(video)
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: 320, height: 240 }  })
   const codec = 'video/webm;codecs=vp8,opus'
-  const websocket = new WebSocket('ws://localhost:6789')
-  const clientId = location.hash.substr(1) || Math.random().toString()
-  websocket.onopen = () => {
-    websocket.send(clientId)
+  let websocket
+  let reconnectTimer = null
+  function reconnect() {
+    if (reconnectTimer) return
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connect()
+    }, 10 * 1000)
   }
-  websocket.onmessage = e => {
-    const cmd = e.data[0]
-    const data = e.data.substr(1)
-    if (cmd == 'C') {
-      const count = parseInt(data)
-      if (count == 1) {
-        stopSend()
-        stopPlay()
-      } else {
-        startSend()
-      }
-    } else if (cmd == 'D') {
-      if (data[0] == '0') startPlay()
-      pushVideoData(data.substr(1))
+  function connect() {
+    websocket = new WebSocket('ws://localhost:6789/')
+    const clientId = location.hash.substr(1) || Math.random().toString()
+    websocket.onopen = () => {
+      websocket.send(clientId)
     }
+    websocket.onmessage = e => {
+      const cmd = e.data[0]
+      const data = e.data.substr(1)
+      if (cmd == 'C') {
+        const count = parseInt(data)
+        if (count == 1) {
+          stopSend()
+          stopPlay()
+        } else {
+          startSend()
+        }
+      } else if (cmd == 'D') {
+        if (data[0] == '0') startPlay()
+        pushVideoData(data.substr(1))
+      }
+    }
+    websocket.onclose = reconnect
+    websocket.onerror = reconnect
   }
+  connect()
   let prevRecorder = null
   function startSend() {
     const recorder = new MediaRecorder(stream, { mimeType: codec })
@@ -43,24 +57,23 @@ onload = async () => {
     prevRecorder.pause()
     prevRecorder = null
   }
+  let tick = null
+  setInterval(() => tick && tick(), 100)
   let buffers = []
-  let appendVideoData = () => { console.error('error') }
+  let appendVideoData = arrayBuffer => buffers.push(arrayBuffer)
   function startPlay() {
     mediaSource = new MediaSource({ mimeType: codec })
     video.src = URL.createObjectURL(mediaSource, { type: codec })
     video.play()
-    buffers = []
-    appendVideoData = arrayBuffer => {
-      buffers.push(arrayBuffer)
-    }
     mediaSource.onsourceopen = () => {
       const sourceBuffer = mediaSource.addSourceBuffer(codec)
-      appendVideoData = arrayBuffer => sourceBuffer.appendBuffer(arrayBuffer)
-      buffers.forEach(appendVideoData)
-      buffers = []
+      tick = () => {
+        if (buffers.length && !sourceBuffer.updating) sourceBuffer.appendBuffer(buffers.shift())
+      }
     }
   }
   function stopPlay() {
+    buffers = []
     if (video.src) URL.revokeObjectURL(video.src)
     video.src = ''
   }
