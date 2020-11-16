@@ -1,7 +1,7 @@
 onload = async () => {
   const video = document.createElement('video')
   document.body.appendChild(video)
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: 320, height: 180 }  })
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: 320, height: 240 }  })
   const codec = 'video/webm;codecs=vp8,opus'
   const websocket = new WebSocket('ws://localhost:6789')
   const clientId = location.hash.substr(1) || Math.random().toString()
@@ -17,30 +17,32 @@ onload = async () => {
         stopSend()
         stopPlay()
       } else {
+        console.log('needrecordstart')
         startSend()
       }
     } else if (cmd == 'D') {
       if (data[0] == '0') startPlay()
       if (data[0] == '0') console.log('recv', data.substr(1, 100), data.substr(-100))
-      pushVideoData(data.substr(1))
+      pushVideoData(data)
     }
   }
   let prevRecorder = null
+  let recid = 0
   function startSend() {
     const recorder = new MediaRecorder(stream, { mimeType: codec })
     let initial = true
+    let n = 0
+    recid++
     recorder.ondataavailable = async event => {
       const blob = event.data
-      const reader = new FileReader()
-      reader.readAsDataURL(blob)
-      reader.onload = () => {
-        if (prevRecorder !== recorder) return
-        const base64 = reader.result.split('base64,',2)[1]
-        if (!base64) console.log('err', reader.result)
-        websocket.send((initial ? 0 : 1) + base64)
-        if (initial) console.log('send', base64.substr(0, 100), base64.substr(-100))
-        initial = false
-      }
+      const arr = new Uint8Array(await blob.arrayBuffer())
+      if (prevRecorder !== recorder) return
+      const base64 = btoa([...arr].map(c => String.fromCharCode((c+256) % 256)).join(''))
+      websocket.send((initial ? 0 : n)+';' + base64)
+      n++
+      if (initial) console.log('send', blob.type, base64.substr(0, 100), base64.substr(-100))
+      initial = false
+      console.log('reci', recid)
     }
     recorder.start(200)
     prevRecorder = recorder
@@ -51,21 +53,36 @@ onload = async () => {
     console.log('stoprecord')
     prevRecorder = null
   }
-  let appendVideoData = _arrayBuffer => {}
+  let buffers = []
+  let appendVideoData = () => { console.error('error') }
   function startPlay() {
+    console.log('newsource')
     mediaSource = new MediaSource({ mimeType: codec })
     video.src = URL.createObjectURL(mediaSource, { type: codec })
     video.play()
+    video.onprogress=()=>{
+      console.log('progress')
+    }
+    buffers = []
+    appendVideoData = arrayBuffer => {
+      buffers.push(arrayBuffer)
+    }
+    console.log('sourceshouldopen')
     mediaSource.onsourceopen = () => {
+      console.log('sourceopen')
       const sourceBuffer = mediaSource.addSourceBuffer(codec)
       appendVideoData = arrayBuffer => sourceBuffer.appendBuffer(arrayBuffer)
+      console.log('buffers', buffers.length, buffers[0])
+      buffers.forEach(appendVideoData)
+      buffers = []
     }
   }
   function stopPlay() {
     if (video.src) URL.revokeObjectURL(video.src)
-    video.src = null
+    video.src = ''
   }
   function pushVideoData(data) {
-    appendVideoData(Uint8Array.from(atob(data), c => c.charCodeAt(0)))
+    console.log('a',data.split(';')[0])
+    appendVideoData(Uint8Array.from(atob(data.split(';',2)[1]), c => c.charCodeAt(0)))
   }
 }
